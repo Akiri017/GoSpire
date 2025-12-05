@@ -1,5 +1,10 @@
-/// <reference types="https://deno.land/x/types/deploy/deploy.d.ts" />
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+// Ambient Deno declarations for Supabase Edge Functions
+declare const Deno: {
+  serve: (handler: (req: Request) => Response | Promise<Response>) => void;
+  env: {
+    get: (key: string) => string | undefined;
+  };
+};
 
 // CORS headers to allow your mobile app to call this
 const corsHeaders = {
@@ -7,7 +12,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   // Handle CORS preflight request
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
