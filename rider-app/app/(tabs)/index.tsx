@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, FlatList, TouchableOpacity, Button, Alert, Imag
 import { supabase } from '../../supabaseClient';
 import QRCode from 'react-native-qrcode-svg';
 import * as ImagePicker from 'expo-image-picker';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface Order {
   id: string;
@@ -20,10 +21,14 @@ export default function HomeScreen() {
   const [qrValue, setQrValue] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const { user, signOut } = useAuth();
 
   // 1. Fetch Orders on Load
   useEffect(() => {
-    fetchOrders();
+    // Only fetch orders if user is logged in
+    if (user?.id) {
+      fetchOrders();
+    }
 
     // 2. Realtime Subscription: Listen for status changes (e.g., PAID)
     const subscription = supabase
@@ -38,19 +43,37 @@ export default function HomeScreen() {
           }
         }
         // Refresh the list regardless
-        fetchOrders();
+        if (user?.id) {
+          fetchOrders();
+        }
       })
       .subscribe();
 
     return () => { supabase.removeChannel(subscription); };
-  }, [selectedOrder]);
+  }, [selectedOrder, user?.id]);
 
   const fetchOrders = async () => {
+    // Guard clause: Don't fetch if no user
+    if (!user?.id) {
+      console.log('No user logged in, skipping order fetch');
+      setOrders([]);
+      return;
+    }
+
+    // Fetch orders for the current logged-in rider only
     const { data, error } = await supabase
       .from('orders')
       .select('*')
+      .eq('rider_id', user.id)
       .order('created_at', { ascending: false });
-    if (!error && data) setOrders(data);
+    
+    if (error) {
+      console.error('Error fetching orders:', error);
+    }
+    if (!error && data) {
+      console.log(`Fetched ${data.length} orders for rider ${user.email}`);
+      setOrders(data);
+    }
   };
 
   // 3. Generate QR Code
@@ -212,7 +235,35 @@ export default function HomeScreen() {
   if (!selectedOrder) {
     return (
       <View style={styles.container}>
-        <Text style={styles.header}>My Deliveries</Text>
+        <View style={styles.headerContainer}>
+          <Text style={styles.header}>My Deliveries</Text>
+          <TouchableOpacity 
+            style={styles.logoutButton}
+            onPress={() => {
+              Alert.alert(
+                'Logout',
+                'Are you sure you want to logout?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { 
+                    text: 'Logout', 
+                    style: 'destructive',
+                    onPress: () => {
+                      signOut().catch(err => {
+                        console.error('Logout error:', err);
+                        Alert.alert('Error', 'Failed to logout');
+                      });
+                    }
+                  },
+                ]
+              );
+            }}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+        {user && (
+          <Text style={styles.userEmail}>Logged in as: {user.email}</Text>
+        )}
         <FlatList
           data={orders}
           keyExtractor={(item) => item.id}
@@ -322,7 +373,11 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, paddingTop: 50, backgroundColor: '#f5f5f5' },
-  header: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
+  headerContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  header: { fontSize: 24, fontWeight: 'bold' },
+  logoutButton: { backgroundColor: '#FF3B30', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  logoutText: { color: 'white', fontWeight: '600', fontSize: 14 },
+  userEmail: { fontSize: 12, color: '#666', marginBottom: 15 },
   card: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 10, elevation: 2 },
   cardDone: { opacity: 0.6 },
   cardTitle: { fontSize: 18, fontWeight: 'bold' },
