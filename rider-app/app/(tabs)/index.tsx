@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import QRCode from 'react-native-qrcode-svg';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '@/contexts/AuthContext';
+import { captureCurrentLocation, formatCoordinates } from '@/services/locationService';
 
 interface Order {
   id: string;
@@ -132,9 +133,20 @@ export default function HomeScreen() {
     }
   };
 
-  // 4. Proof of Delivery (Photo)
+  // 4. Proof of Delivery (Photo) + GPS Capture
   const handlePOD = async (orderId: string, paymentMethod: 'CASH' | 'QRPH' = 'CASH') => {
     try {
+      // Step 1: Capture GPS coordinates first
+      console.log('Capturing delivery location...');
+      const location = await captureCurrentLocation();
+      
+      if (location) {
+        console.log('Location captured:', formatCoordinates(location.latitude, location.longitude));
+      } else {
+        console.warn('Location not available, proceeding without GPS');
+      }
+
+      // Step 2: Take delivery proof photo
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.5,
@@ -175,18 +187,22 @@ export default function HomeScreen() {
             "The 'proofs' storage bucket doesn't exist.\n\nPlease create it in Supabase Dashboard:\n1. Go to Storage\n2. Create bucket 'proofs'\n3. Make it public\n\nFor now, marking as completed without proof."
           );
           
-          // Complete order without proof URL
+          // Complete order without proof URL but with GPS
           const { error: updateError } = await supabase
             .from('orders')
             .update({ 
               status: 'COMPLETED', 
               proof_url: 'no_storage_configured',
-              payment_method: paymentMethod
+              payment_method: paymentMethod,
+              delivery_latitude: location?.latitude,
+              delivery_longitude: location?.longitude,
+              delivery_timestamp: location?.timestamp.toISOString()
             })
             .eq('id', orderId);
           
           if (!updateError) {
-            Alert.alert("Success", "Delivery marked as completed (proof saved locally)");
+            const gpsMsg = location ? `\n📍 Location: ${formatCoordinates(location.latitude, location.longitude)}` : '';
+            Alert.alert("Success", `Delivery marked as completed (proof saved locally)${gpsMsg}`);
             setSelectedOrder(null);
             fetchOrders();
           }
@@ -204,13 +220,16 @@ export default function HomeScreen() {
       
       console.log('Public URL:', publicData.publicUrl);
 
-      // Update Order with proof URL and payment method
+      // Step 3: Update Order with proof URL, payment method, AND GPS coordinates
       const { error: updateError } = await supabase
         .from('orders')
         .update({ 
           status: 'COMPLETED', 
           proof_url: publicData.publicUrl,
-          payment_method: paymentMethod
+          payment_method: paymentMethod,
+          delivery_latitude: location?.latitude,
+          delivery_longitude: location?.longitude,
+          delivery_timestamp: location?.timestamp.toISOString()
         })
         .eq('id', orderId);
       
@@ -219,8 +238,9 @@ export default function HomeScreen() {
         Alert.alert("Update Failed", updateError.message);
         return;
       }
-        
-      Alert.alert("Success", "Delivery Completed!");
+      
+      const gpsMsg = location ? `\n📍 Location: ${formatCoordinates(location.latitude, location.longitude)}` : '';
+      Alert.alert("Success", `Delivery Completed!${gpsMsg}`);
       setSelectedOrder(null); // Go back to list
       fetchOrders();
     } catch (err: any) {
