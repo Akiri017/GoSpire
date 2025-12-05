@@ -14,6 +14,9 @@ interface Order {
   status: string;
   created_at: string;
   proof_url?: string;
+  cash_fallback_reason?: string;
+  fallback_timestamp?: string;
+  payment_method?: string;
 }
 
 export default function HomeScreen() {
@@ -75,6 +78,77 @@ export default function HomeScreen() {
       console.log(`Fetched ${data.length} orders for rider ${user.email}`);
       setOrders(data);
     }
+  };
+
+  // Update order status (for EN_ROUTE, ARRIVED)
+  const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: newStatus })
+      .eq('id', orderId);
+    
+    if (error) {
+      Alert.alert('Error', 'Failed to update status');
+      return;
+    }
+    
+    // Update local state
+    if (selectedOrder) {
+      const updatedOrder = { ...selectedOrder, status: newStatus };
+      setSelectedOrder(updatedOrder);
+    }
+    fetchOrders();
+  };
+
+  // Handle cash fallback with reason
+  const handleCashFallback = (orderId: string) => {
+    Alert.alert(
+      'Cash Payment - Select Reason',
+      'Why did the customer pay with cash?',
+      [
+        {
+          text: 'QR Payment Failed',
+          onPress: () => processCashFallback(orderId, 'QR_PAYMENT_FAILED')
+        },
+        {
+          text: 'Customer Has No Internet',
+          onPress: () => processCashFallback(orderId, 'CUSTOMER_NO_INTERNET')
+        },
+        {
+          text: 'Customer Prefers Cash',
+          onPress: () => processCashFallback(orderId, 'CUSTOMER_REQUEST')
+        },
+        {
+          text: 'App Error',
+          onPress: () => processCashFallback(orderId, 'APP_ERROR')
+        },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    );
+  };
+
+  const processCashFallback = async (orderId: string, reason: string) => {
+    const { error } = await supabase
+      .from('orders')
+      .update({ 
+        status: 'PAID',
+        payment_method: 'CASH',
+        cash_fallback_reason: reason,
+        fallback_timestamp: new Date().toISOString()
+      })
+      .eq('id', orderId);
+    
+    if (error) {
+      Alert.alert('Error', 'Failed to record cash payment');
+      return;
+    }
+    
+    Alert.alert('Success', 'Cash payment recorded! Now take proof photo.');
+    if (selectedOrder) {
+      const updatedOrder = { ...selectedOrder, status: 'PAID', payment_method: 'CASH' };
+      setSelectedOrder(updatedOrder);
+    }
+    fetchOrders();
   };
 
   // 3. Generate QR Code
@@ -188,12 +262,12 @@ export default function HomeScreen() {
           );
           
           // Complete order without proof URL but with GPS
+          // Don't override payment_method - it's already set
           const { error: updateError } = await supabase
             .from('orders')
             .update({ 
               status: 'COMPLETED', 
               proof_url: 'no_storage_configured',
-              payment_method: paymentMethod,
               delivery_latitude: location?.latitude,
               delivery_longitude: location?.longitude,
               delivery_timestamp: location?.timestamp.toISOString()
@@ -201,8 +275,9 @@ export default function HomeScreen() {
             .eq('id', orderId);
           
           if (!updateError) {
+            const paymentType = selectedOrder?.payment_method === 'CASH' ? 'Cash' : 'QRPH';
             const gpsMsg = location ? `\n📍 Location: ${formatCoordinates(location.latitude, location.longitude)}` : '';
-            Alert.alert("Success", `Delivery marked as completed (proof saved locally)${gpsMsg}`);
+            Alert.alert("Success", `Delivery marked as completed (${paymentType} - proof saved locally)${gpsMsg}`);
             setSelectedOrder(null);
             fetchOrders();
           }
@@ -220,13 +295,13 @@ export default function HomeScreen() {
       
       console.log('Public URL:', publicData.publicUrl);
 
-      // Step 3: Update Order with proof URL, payment method, AND GPS coordinates
+      // Step 3: Update Order with proof URL, GPS coordinates (keep existing payment_method)
+      // Don't override payment_method - it's already set (either CASH from fallback or QRPH from QR)
       const { error: updateError } = await supabase
         .from('orders')
         .update({ 
           status: 'COMPLETED', 
           proof_url: publicData.publicUrl,
-          payment_method: paymentMethod,
           delivery_latitude: location?.latitude,
           delivery_longitude: location?.longitude,
           delivery_timestamp: location?.timestamp.toISOString()
@@ -239,8 +314,10 @@ export default function HomeScreen() {
         return;
       }
       
+      // Get payment method for success message
+      const paymentType = selectedOrder?.payment_method === 'CASH' ? 'Cash' : 'QRPH';
       const gpsMsg = location ? `\n📍 Location: ${formatCoordinates(location.latitude, location.longitude)}` : '';
-      Alert.alert("Success", `Delivery Completed!${gpsMsg}`);
+      Alert.alert("Success", `Delivery Completed! (${paymentType} Payment)${gpsMsg}`);
       setSelectedOrder(null); // Go back to list
       fetchOrders();
     } catch (err: any) {
@@ -250,6 +327,19 @@ export default function HomeScreen() {
   };
 
   // --- RENDERING ---
+
+  // Helper: Get status badge color
+  const getStatusColor = (status: string) => {
+    switch(status) {
+      case 'PENDING': return '#95a5a6';
+      case 'EN_ROUTE': return '#3498db';
+      case 'ARRIVED': return '#9b59b6';
+      case 'PAYMENT_PENDING': return '#f39c12';
+      case 'PAID': return '#2ecc71';
+      case 'COMPLETED': return '#27ae60';
+      default: return '#7f8c8d';
+    }
+  };
 
   // Screen 1: The List
   if (!selectedOrder) {
@@ -295,7 +385,9 @@ export default function HomeScreen() {
               <Text style={styles.cardTitle}>{item.customer_name}</Text>
               <Text>{item.address}</Text>
               <Text style={styles.amount}>₱{item.cod_amount}</Text>
-              <Text style={styles.status}>{item.status}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+                <Text style={styles.statusText}>{item.status}</Text>
+              </View>
             </TouchableOpacity>
           )}
         />
@@ -311,40 +403,110 @@ export default function HomeScreen() {
       <View style={styles.detailBox}>
         <Text style={styles.cardTitle}>{selectedOrder.customer_name}</Text>
         <Text style={styles.amount}>₱{selectedOrder.cod_amount}</Text>
-        <Text>Status: {selectedOrder.status}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(selectedOrder.status), marginTop: 10 }]}>
+          <Text style={styles.statusText}>{selectedOrder.status}</Text>
+        </View>
+        {selectedOrder.cash_fallback_reason && (
+          <Text style={{marginTop: 10, fontSize: 12, color: '#e74c3c', fontStyle: 'italic'}}>
+            💵 Cash Fallback: {selectedOrder.cash_fallback_reason.replace(/_/g, ' ')}
+          </Text>
+        )}
       </View>
 
-      {/* ACTION: Pay via QR */}
-      {selectedOrder.status !== 'COMPLETED' && selectedOrder.status !== 'PAID' && (
+      {/* STEP 1: Start Delivery (PENDING → EN_ROUTE) */}
+      {selectedOrder.status === 'PENDING' && (
         <View style={styles.section}>
-          <Text style={styles.subHeader}>Payment Method</Text>
+          <Text style={styles.subHeader}>📦 Ready to Start?</Text>
           <Button 
-            title={loading ? "Generating..." : "Generate QRPH Code"} 
-            onPress={() => handleGenerateQR(selectedOrder)} 
-            disabled={loading}
+            title="🚗 Start Delivery (Leave Hub)" 
+            onPress={() => updateOrderStatus(selectedOrder.id, 'EN_ROUTE')} 
+            color="#3498db"
           />
-          {qrValue && (
-            <View style={styles.qrContainer}>
-               {!imageError ? (
-                 <Image 
-                   source={{ uri: qrValue }} 
-                   style={{ width: 250, height: 250, marginVertical: 20 }}
-                   onError={(e) => {
-                     console.error('Image load error:', e.nativeEvent.error);
-                     setImageError(true);
-                   }}
-                   onLoad={() => console.log('QR image loaded successfully')}
-                 />
-               ) : (
-                 <View>
-                   <Text style={{color: 'red', marginBottom: 10}}>Image failed to load</Text>
-                   <QRCode value={qrValue} size={250} />
-                 </View>
-               )}
-               <Text style={{marginTop: 10, fontSize: 16, fontWeight: 'bold'}}>Ask Customer to Scan</Text>
-               
-               {/* TEST MODE: Simulate payment confirmation */}
-               {selectedOrder.status === 'PAYMENT_PENDING' && (
+        </View>
+      )}
+
+      {/* STEP 2: Mark Arrived (EN_ROUTE → ARRIVED) */}
+      {selectedOrder.status === 'EN_ROUTE' && (
+        <View style={styles.section}>
+          <Text style={styles.subHeader}>🚗 On the Way...</Text>
+          <Button 
+            title="📍 Mark as Arrived" 
+            onPress={() => updateOrderStatus(selectedOrder.id, 'ARRIVED')} 
+            color="#9b59b6"
+          />
+        </View>
+      )}
+
+      {/* STEP 3: Payment Options (ARRIVED → PAYMENT_PENDING or PAID) */}
+      {selectedOrder.status === 'ARRIVED' && (
+        <View>
+          <View style={styles.section}>
+            <Text style={styles.subHeader}>💰 Collect Payment</Text>
+            <Button 
+              title={loading ? "Generating QR..." : "📱 Generate QRPH Code"} 
+              onPress={() => handleGenerateQR(selectedOrder)} 
+              disabled={loading}
+              color="#f39c12"
+            />
+            {qrValue && (
+              <View style={styles.qrContainer}>
+                 {!imageError ? (
+                   <Image 
+                     source={{ uri: qrValue }} 
+                     style={{ width: 250, height: 250, marginVertical: 20 }}
+                     onError={(e) => {
+                       console.error('Image load error:', e.nativeEvent.error);
+                       setImageError(true);
+                     }}
+                     onLoad={() => console.log('QR image loaded successfully')}
+                   />
+                 ) : (
+                   <View>
+                     <Text style={{color: 'red', marginBottom: 10}}>Image failed to load</Text>
+                     <QRCode value={qrValue} size={250} />
+                   </View>
+                 )}
+                 <Text style={{marginTop: 10, fontSize: 16, fontWeight: 'bold'}}>Ask Customer to Scan</Text>
+              </View>
+            )}
+          </View>
+          
+          <View style={{marginTop: 20}}>
+            <Text style={{textAlign: 'center', marginBottom: 10, color: '#7f8c8d'}}>— OR —</Text>
+            <Button 
+              title="💵 Accept Cash (Fallback)" 
+              onPress={() => handleCashFallback(selectedOrder.id)} 
+              color="#27ae60"
+            />
+          </View>
+        </View>
+      )}
+
+      {/* STEP 3b: Waiting for QR Payment */}
+      {selectedOrder.status === 'PAYMENT_PENDING' && (
+        <View>
+          <View style={styles.section}>
+            <Text style={styles.subHeader}>⏳ Waiting for Payment...</Text>
+            {qrValue && (
+              <View style={styles.qrContainer}>
+                 {!imageError ? (
+                   <Image 
+                     source={{ uri: qrValue }} 
+                     style={{ width: 250, height: 250, marginVertical: 20 }}
+                     onError={(e) => {
+                       console.error('Image load error:', e.nativeEvent.error);
+                       setImageError(true);
+                     }}
+                   />
+                 ) : (
+                   <View>
+                     <Text style={{color: 'red', marginBottom: 10}}>Image failed to load</Text>
+                     <QRCode value={qrValue} size={250} />
+                   </View>
+                 )}
+                 <Text style={{marginTop: 10, fontSize: 16, fontWeight: 'bold'}}>Customer Scanning...</Text>
+                 
+                 {/* TEST MODE: Simulate payment */}
                  <View style={{marginTop: 20, padding: 10, backgroundColor: '#fff3cd', borderRadius: 5}}>
                    <Text style={{fontSize: 12, color: '#856404', marginBottom: 10, textAlign: 'center'}}>
                      TEST MODE: Simulate payment without scanning
@@ -358,32 +520,42 @@ export default function HomeScreen() {
                      }}
                    />
                  </View>
-               )}
-            </View>
-          )}
+              </View>
+            )}
+          </View>
+          
+          <View style={{marginTop: 20}}>
+            <Text style={{textAlign: 'center', marginBottom: 10, color: '#e74c3c', fontWeight: 'bold'}}>Payment Failed?</Text>
+            <Button 
+              title="💵 Switch to Cash" 
+              onPress={() => handleCashFallback(selectedOrder.id)} 
+              color="#e74c3c"
+            />
+          </View>
         </View>
       )}
 
-      {/* ACTION: Pay via Cash (Fallback) */}
-      {selectedOrder.status !== 'COMPLETED' && selectedOrder.status !== 'PAID' && (
-        <View style={{marginTop: 10}}>
-           <Button title="Customer Paid Cash" color="green" onPress={() => handlePOD(selectedOrder.id, 'CASH')} />
-        </View>
-      )}
-
-      {/* ACTION: Proof of Delivery (After QR Payment) */}
+      {/* STEP 4: Proof of Delivery (PAID → COMPLETED) */}
       {selectedOrder.status === 'PAID' && (
         <View style={styles.section}>
           <Text style={{color: 'green', fontSize: 18, fontWeight: 'bold', marginBottom: 10}}>
-             PAYMENT CONFIRMED!
+             ✅ PAYMENT CONFIRMED!
           </Text>
-          <Button title="Take Proof Photo & Finish" onPress={() => handlePOD(selectedOrder.id, 'QRPH')} />
+          <Text style={{fontSize: 14, color: '#666', marginBottom: 10}}>
+            Payment Method: {selectedOrder.payment_method || 'Unknown'}
+          </Text>
+          <Button 
+            title="📸 Take Proof Photo & Complete" 
+            onPress={() => handlePOD(selectedOrder.id)} 
+            color="#27ae60"
+          />
         </View>
       )}
 
+      {/* COMPLETED */}
       {selectedOrder.status === 'COMPLETED' && (
         <Text style={{fontSize: 20, color: 'green', marginTop: 20, textAlign: 'center'}}>
-          Delivery Completed ✅
+          ✅ Delivery Completed!
         </Text>
       )}
 
@@ -403,8 +575,22 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: 'bold' },
   amount: { fontSize: 18, color: '#2ecc71', fontWeight: 'bold', marginTop: 5 },
   status: { fontSize: 12, color: 'gray', marginTop: 5, textTransform: 'uppercase' },
+  statusBadge: { 
+    paddingHorizontal: 12, 
+    paddingVertical: 6, 
+    borderRadius: 15, 
+    marginTop: 8,
+    alignSelf: 'flex-start'
+  },
+  statusText: { 
+    color: 'white', 
+    fontSize: 11, 
+    fontWeight: 'bold', 
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
+  },
   detailBox: { backgroundColor: 'white', padding: 20, borderRadius: 10, marginVertical: 20, alignItems: 'center' },
   section: { marginVertical: 10, alignItems: 'center' },
-  subHeader: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  subHeader: { fontSize: 16, fontWeight: '600', marginBottom: 15, textAlign: 'center' },
   qrContainer: { alignItems: 'center', marginTop: 20, padding: 20, backgroundColor: 'white', borderRadius: 10 },
 });
