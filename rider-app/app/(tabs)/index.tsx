@@ -149,12 +149,6 @@ export default function HomeScreen() {
                 supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', updatedOrder.id);
               }
             }
-            // Handle COMPLETED status
-            else if (updatedOrder.status === 'COMPLETED') {
-              if (selectedOrder && selectedOrder.id === updatedOrder.id) {
-                setQrValue(null);
-              }
-            }
             // Handle EN_ROUTE status
             else if (updatedOrder.status === 'EN_ROUTE' || updatedOrder.status === 'ENROUTE') {
               const statusKey = `${updatedOrder.id}_EN_ROUTE`;
@@ -264,7 +258,7 @@ export default function HomeScreen() {
     
     // Show toast and send notification for status updates (only once per status)
     if (newStatus === 'EN_ROUTE') {
-      showToast('🚗 Trip started! On the way to customer', 'success');
+      showToast('🚗 Trip started! On the way to customer', 'info');
       if (selectedOrder) {
         const statusKey = `${orderId}_${newStatus}`;
         const orderStatuses = notifiedStatusRef.current.get(orderId) || new Set();
@@ -382,7 +376,16 @@ export default function HomeScreen() {
           "Proof Required",
           "You must upload a proof of delivery photo to complete this transaction.",
           [
-            { text: "Try Again", onPress: () => handlePOD(orderId, paymentMethod, cashReason) }
+            { text: "Try Again", onPress: () => handlePOD(orderId, paymentMethod, cashReason) },
+            { 
+              text: "Cancel", 
+              style: "cancel",
+              onPress: () => {
+                // Return to payment method selection by clearing QR
+                setQrValue(null);
+                showToast('Returned to payment selection', 'info');
+              }
+            }
           ]
         );
         return;
