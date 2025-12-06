@@ -1,8 +1,7 @@
-/// <reference types="https://deno.land/x/types/deploy/deploy.d.ts" />
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   try {
     const event = await req.json()
     console.log("Webhook received:", event.type)
