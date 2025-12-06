@@ -441,7 +441,7 @@ export default function HomeScreen() {
         if (!isAutoRegenerate) {
           Alert.alert(
             "QR Code Ready", 
-            `QR code generated for testing.\n\nExpires in 5 minutes at ${mockExpiry.toLocaleTimeString()}`
+            `\n\nExpires in 5 minutes at ${mockExpiry.toLocaleTimeString()}\n\n`
           );
         } else {
           showToast(`🔄 QR refreshed (expires ${mockExpiry.toLocaleTimeString()})`, 'success');
@@ -461,7 +461,7 @@ export default function HomeScreen() {
           console.log(`⏱️ QR will expire at: ${expiryDate.toLocaleTimeString()} (${secondsRemaining}s remaining)`);
           
           if (isAutoRegenerate) {
-            showToast(`🔄 New QR generated (expires at ${expiryDate.toLocaleTimeString()})`, 'success');
+            showToast(`🔄 New QR generated (expires in 5 minutes at ${expiryDate.toLocaleTimeString()})`, 'success');
           }
         }
         
@@ -532,7 +532,7 @@ export default function HomeScreen() {
       if (!isAutoRegenerate) {
         Alert.alert(
           "QR Code Ready", 
-          `Test QR code generated for development.\n\nExpires in 5 minutes at ${mockExpiry.toLocaleTimeString()}`
+          `\n\nExpires in 5 minutes at ${mockExpiry.toLocaleTimeString()}\n\n`
         );
       }
     } finally {
@@ -545,7 +545,7 @@ export default function HomeScreen() {
     try {
       // Step 1: Capture GPS coordinates first
       console.log('Capturing delivery location...');
-      showToast('📍 Capturing GPS location...', 'info');
+      showToast('📸 Capturing GPS location and Proof of Delivery', 'info');
       const location = await captureCurrentLocation();
       
       if (location) {
@@ -568,7 +568,6 @@ export default function HomeScreen() {
           "Proof Required",
           "You must upload a proof of delivery photo to complete this transaction.",
           [
-            { text: "Try Again", onPress: () => handlePOD(orderId, paymentMethod, cashReason) },
             { 
               text: "Cancel", 
               style: "cancel",
@@ -577,7 +576,8 @@ export default function HomeScreen() {
                 setQrValue(null);
                 showToast('Returned to payment selection', 'info');
               }
-            }
+            },
+            { text: "Try Again", onPress: () => handlePOD(orderId, paymentMethod, cashReason) }
           ]
         );
         return;
@@ -1000,19 +1000,22 @@ export default function HomeScreen() {
           {/* QR Expiry Timer */}
           {qrTimeRemaining !== null && qrTimeRemaining >= 0 && (
             <View style={styles.timerContainer}>
-              <Text style={[
-                styles.timerText,
-                qrTimeRemaining <= 60 && styles.timerTextUrgent
-              ]}>
-                {qrTimeRemaining > 0 ? (
-                  `QR expires in ${Math.floor(qrTimeRemaining / 60)}m ${qrTimeRemaining % 60}s`
-                ) : (
-                  '⏱️ EXPIRED - Regenerating...'
-                )}
-              </Text>
-              <Text style={styles.timerSubtext}>
-                Auto-refresh enabled
-              </Text>
+              {qrTimeRemaining > 0 ? (
+                <Text style={styles.timerText}>
+                  <Text style={styles.timerLabel}>QR expires in </Text>
+                  <Text style={[
+                    styles.timerValue,
+                    qrTimeRemaining <= 60 && styles.timerTextUrgent
+                  ]}>
+                    {Math.floor(qrTimeRemaining / 60)}m {qrTimeRemaining % 60}s
+                  </Text>
+                </Text>
+              ) : (
+                <Text style={styles.timerText}>
+                  <Text style={styles.timerLabel}>⏱️ EXPIRED - </Text>
+                  <Text style={styles.timerTextUrgent}>Regenerating...</Text>
+                </Text>
+              )}
             </View>
           )}
           
@@ -1250,45 +1253,39 @@ const styles = StyleSheet.create({
     color: '#333' 
   },
   timerContainer: { 
-    backgroundColor: '#007AFF', 
-    paddingVertical: 12, 
-    paddingHorizontal: 20, 
-    borderRadius: 8, 
     marginBottom: 15, 
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
+    alignItems: 'center'
   },
   timerText: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    color: 'white',
-    letterSpacing: 0.5,
-    marginBottom: 4
+    fontSize: 16,
+    textAlign: 'center'
+  },
+  timerLabel: {
+    color: '#000',
+    fontWeight: 'normal'
+  },
+  timerValue: {
+    color: '#FF0000',
+    fontWeight: 'normal'
   },
   timerTextUrgent: {
-    color: '#FFD700'
-  },
-  timerSubtext: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontWeight: '500'
+    color: '#FF0000',
+    fontWeight: 'normal'
   },
   refreshButton: {
-    backgroundColor: '#6c757d',
+    backgroundColor: 'transparent',
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#6c757d',
     width: '100%',
     alignItems: 'center',
     marginTop: 15,
     marginBottom: 10
   },
   refreshButtonText: {
-    color: 'white',
+    color: '#6c757d',
     fontSize: 14,
     fontWeight: '600'
   }
