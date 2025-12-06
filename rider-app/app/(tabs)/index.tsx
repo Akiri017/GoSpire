@@ -42,8 +42,14 @@ export default function HomeScreen() {
           setSelectedOrder(payload.new);
           if (payload.new.status === 'PAID') {
             Alert.alert("Payment Received!", "The customer has paid via QRPH. Completing order...");
+            // Clear QR code since payment is received
+            setQrValue(null);
             // Auto-complete the order
             supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', payload.new.id);
+          }
+          // If order is completed, clear QR and show completed state
+          if (payload.new.status === 'COMPLETED') {
+            setQrValue(null);
           }
         }
         // Refresh the list regardless
@@ -80,7 +86,26 @@ export default function HomeScreen() {
     }
   };
 
-  // 3. Generate QR Code
+  // 3. Update Order Status
+  const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: newStatus })
+      .eq('id', orderId);
+    
+    if (error) {
+      console.error('Error updating status:', error);
+      Alert.alert('Error', 'Failed to update order status');
+      return false;
+    }
+    
+    // Update local state
+    setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
+    fetchOrders();
+    return true;
+  };
+
+  // 4. Generate QR Code
   const handleGenerateQR = async (order: Order) => {
     setLoading(true);
     setImageError(false);
@@ -114,9 +139,8 @@ export default function HomeScreen() {
         setQrValue(data.qr_url);
       }
       
-      // Update status to PENDING and payment_method to QRPH
+      // Update payment_method to QRPH (status remains ARRIVED)
       await supabase.from('orders').update({ 
-        status: 'PENDING',
         payment_method: 'QRPH'
       }).eq('id', order.id);
       
@@ -136,7 +160,7 @@ export default function HomeScreen() {
     }
   };
 
-  // 4. Proof of Delivery (Photo) + GPS Capture
+  // 5. Proof of Delivery (Photo) + GPS Capture
   const handlePOD = async (orderId: string, paymentMethod: 'CASH' | 'QRPH' = 'CASH') => {
     try {
       // Step 1: Capture GPS coordinates first
@@ -254,6 +278,19 @@ export default function HomeScreen() {
 
   // --- RENDERING ---
 
+  // Helper function for status colors
+  const getStatusColor = (status: string) => {
+    switch(status.toUpperCase()) {
+      case 'COMPLETED': return '#28a745';      // Green
+      case 'PAID': return '#17a2b8';           // Teal
+      case 'PENDING': return '#ffc107';        // Yellow - Awaiting rider to start
+      case 'EN_ROUTE': return '#007bff';       // Blue - On the way
+      case 'ENROUTE': return '#007bff';        // Blue (alternate spelling)
+      case 'ARRIVED': return '#fd7e14';        // Orange - Ready for payment
+      default: return '#6c757d';               // Gray (default)
+    }
+  };
+
   // Filter orders based on active tab
   const filteredOrders = orders.filter(order => {
     if (activeTab === 'active') {
@@ -321,19 +358,6 @@ export default function HomeScreen() {
           data={filteredOrders}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => {
-            // Determine status color
-            const getStatusColor = (status: string) => {
-              switch(status.toUpperCase()) {
-                case 'COMPLETED': return '#28a745';      // Green
-                case 'PAID': return '#17a2b8';           // Teal
-                case 'PENDING': return '#ffc107';        // Yellow - Awaiting payment/action
-                case 'EN_ROUTE': return '#007bff';       // Blue
-                case 'ENROUTE': return '#007bff';        // Blue (alternate spelling)
-                case 'ARRIVED': return '#fd7e14';        // Orange
-                default: return '#6c757d';               // Gray (default)
-              }
-            };
-            
             return (
               <TouchableOpacity 
                 style={styles.card} 
@@ -372,67 +396,122 @@ export default function HomeScreen() {
       </TouchableOpacity>
       
       <View style={styles.detailBox}>
-        <Text style={styles.detailLabel}>Customer</Text>
-        <Text style={styles.cardTitle}>{selectedOrder.customer_name}</Text>
-        <Text style={styles.detailAddress}>{selectedOrder.address}</Text>
+        {/* Header with Order ID and Status Badge */}
+        <View style={styles.detailHeader}>
+          <Text style={styles.orderIdText}>Order #{selectedOrder.id.slice(0, 8)}</Text>
+          <View style={[styles.statusBadgeDetail, { backgroundColor: getStatusColor(selectedOrder.status) }]}>
+            <Text style={styles.statusTextDetail}>{selectedOrder.status}</Text>
+          </View>
+        </View>
+        
         <View style={styles.divider} />
-        <Text style={styles.detailLabel}>Amount to Collect</Text>
-        <Text style={styles.amount}>₱{selectedOrder.cod_amount.toFixed(2)}</Text>
+        
+        {/* Customer Info and Address in Row */}
+        <View style={styles.infoRow}>
+          <View style={styles.infoColumn}>
+            <Text style={styles.detailLabel}>👤 Customer</Text>
+            <Text style={styles.detailValue}>{selectedOrder.customer_name}</Text>
+          </View>
+          <View style={[styles.infoColumn, { flex: 1.5 }]}>
+            <Text style={styles.detailLabel}>📍 Delivery Address</Text>
+            <Text style={styles.detailAddress}>{selectedOrder.address}</Text>
+          </View>
+        </View>
+        
+        <View style={styles.divider} />
+        
+        {/* Amount - Highlighted */}
+        <View style={styles.amountSection}>
+          <Text style={styles.amountLabel}>Amount to Collect</Text>
+          <Text style={styles.amountLarge}>₱{selectedOrder.cod_amount.toFixed(2)}</Text>
+        </View>
       </View>
 
-      {/* ACTION: Generate QR or Show QR */}
-      {selectedOrder.status !== 'COMPLETED' && !qrValue && (
+      {/* STEP 1: Start Delivery (PENDING → EN_ROUTE) */}
+      {selectedOrder.status?.toUpperCase() === 'PENDING' && (
         <View style={styles.section}>
           <TouchableOpacity 
-            style={[styles.primaryButton, loading && styles.buttonDisabled]}
-            onPress={() => handleGenerateQR(selectedOrder)} 
-            disabled={loading}
+            style={styles.primaryButton}
+            onPress={async () => {
+              await updateOrderStatus(selectedOrder.id, 'EN_ROUTE');
+            }}
           >
-            <Text style={styles.primaryButtonText}>
-              {loading ? "Generating QR Code..." : "📱 Generate QR Code for Payment"}
-            </Text>
+            <Text style={styles.primaryButtonText}>🚚 Start Delivery</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Show QR Code */}
-      {qrValue && selectedOrder.status !== 'COMPLETED' && (
-        <View style={styles.qrContainer}>
-          {!imageError ? (
-            <Image 
-              source={{ uri: qrValue }} 
-              style={{ width: 250, height: 250, marginVertical: 20 }}
-              onError={(e) => {
-                console.error('Image load error:', e.nativeEvent.error);
-                setImageError(true);
-              }}
-              onLoad={() => console.log('QR image loaded successfully')}
-            />
-          ) : (
-            <View>
-              <Text style={{color: 'red', marginBottom: 10}}>Image failed to load</Text>
-              <QRCode value={qrValue} size={250} />
-            </View>
+      {/* STEP 2: Arrive at Destination (EN_ROUTE → ARRIVED) */}
+      {selectedOrder.status?.toUpperCase() === 'EN_ROUTE' && (
+        <View style={styles.section}>
+          <TouchableOpacity 
+            style={styles.arriveButton}
+            onPress={async () => {
+              await updateOrderStatus(selectedOrder.id, 'ARRIVED');
+            }}
+          >
+            <Text style={styles.arriveButtonText}>📍 I Have Arrived</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* STEP 3: Payment Options (Only show when ARRIVED) */}
+      {selectedOrder.status?.toUpperCase() === 'ARRIVED' && (
+        <View style={styles.section}>
+          {/* Generate QR Button */}
+          {!qrValue && (
+            <TouchableOpacity 
+              style={[styles.primaryButton, loading && styles.buttonDisabled]}
+              onPress={() => handleGenerateQR(selectedOrder)} 
+              disabled={loading}
+            >
+              <Text style={styles.primaryButtonText}>
+                {loading ? "Generating QR Code..." : "📱 Generate QR Code for Payment"}
+              </Text>
+            </TouchableOpacity>
           )}
-          <Text style={styles.qrInstruction}>Ask customer to scan this QR code</Text>
+        </View>
+      )}
+
+      {/* Show QR Code when ARRIVED */}
+      {qrValue && selectedOrder.status?.toUpperCase() === 'ARRIVED' && (
+        <>
+          <Text style={styles.qrTitle}>Scan QR Code</Text>
+          <View style={styles.qrContainer}>
+            {!imageError ? (
+              <Image 
+                source={{ uri: qrValue }} 
+                style={{ width: 250, height: 250 }}
+                onError={(e) => {
+                  console.error('Image load error:', e.nativeEvent.error);
+                  setImageError(true);
+                }}
+                onLoad={() => console.log('QR image loaded successfully')}
+              />
+            ) : (
+              <View>
+                <Text style={{color: 'red', marginBottom: 10}}>Image failed to load</Text>
+                <QRCode value={qrValue} size={250} />
+              </View>
+            )}
           
           {/* TEST MODE: Simulate payment confirmation */}
-          {selectedOrder.status === 'PENDING' && (
-            <View style={styles.testModeBox}>
-              <Text style={styles.testModeLabel}>
-                TEST MODE: Simulate payment
-              </Text>
-              <TouchableOpacity
-                style={styles.testButton}
-                onPress={async () => {
-                  await supabase.from('orders').update({ status: 'PAID' }).eq('id', selectedOrder.id);
-                  Alert.alert("Test Payment", "Order marked as PAID for testing");
-                }}
-              >
-                <Text style={styles.testButtonText}>✓ Simulate Payment Received</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <View style={styles.testModeBox}>
+            <Text style={styles.testModeLabel}>
+              TEST MODE: Simulate payment
+            </Text>
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={async () => {
+                // Clear QR and mark as completed with QRPH payment
+                setQrValue(null);
+                // Complete the order with proof
+                handlePOD(selectedOrder.id, 'QRPH');
+              }}
+            >
+              <Text style={styles.testButtonText}>✓ Simulate Payment Received</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Payment Failed - Switch to Cash */}
           <TouchableOpacity
@@ -448,7 +527,6 @@ export default function HomeScreen() {
                     style: "destructive",
                     onPress: () => {
                       setQrValue(null);
-                      handlePOD(selectedOrder.id, 'CASH');
                     }
                   }
                 ]
@@ -458,10 +536,11 @@ export default function HomeScreen() {
             <Text style={styles.failButtonText}>Payment Failed? Switch to Cash</Text>
           </TouchableOpacity>
         </View>
+        </>
       )}
 
-      {/* Direct Cash Payment Option */}
-      {selectedOrder.status !== 'COMPLETED' && !qrValue && (
+      {/* Direct Cash Payment Option (Only when ARRIVED) */}
+      {selectedOrder.status?.toUpperCase() === 'ARRIVED' && !qrValue && (
         <View style={styles.section}>
           <TouchableOpacity
             style={styles.cashButton}
@@ -472,7 +551,7 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {selectedOrder.status === 'COMPLETED' && (
+      {selectedOrder.status?.toUpperCase() === 'COMPLETED' && (
         <View style={styles.completedBox}>
           <Text style={styles.completedText}>✅ Delivery Completed</Text>
         </View>
@@ -526,10 +605,19 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, minWidth: 80, alignItems: 'center' },
   statusText: { fontSize: 10, color: 'white', textTransform: 'uppercase', fontWeight: 'bold' },
   status: { fontSize: 11, color: '#666', textTransform: 'uppercase', fontWeight: '600' },
-  detailBox: { backgroundColor: 'white', padding: 24, borderRadius: 12, marginVertical: 20 },
-  detailLabel: { fontSize: 12, color: '#666', fontWeight: '600', textTransform: 'uppercase', marginBottom: 5 },
-  detailAddress: { fontSize: 14, color: '#666', marginTop: 5, marginBottom: 15 },
-  divider: { height: 1, backgroundColor: '#e0e0e0', width: '100%', marginVertical: 15 },
+  detailBox: { backgroundColor: 'white', padding: 24, borderRadius: 16, marginVertical: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  detailHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  orderIdText: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  infoSection: { marginBottom: 16 },
+  infoRow: { flexDirection: 'row', gap: 16, marginBottom: 16 },
+  infoColumn: { flex: 1 },
+  detailLabel: { fontSize: 11, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+  detailValue: { fontSize: 18, fontWeight: '600', color: '#333' },
+  detailAddress: { fontSize: 15, color: '#555', lineHeight: 22 },
+  amountSection: { alignItems: 'center', paddingVertical: 12, backgroundColor: '#f8f9fa', borderRadius: 12, marginTop: 8 },
+  amountLabel: { fontSize: 12, color: '#666', fontWeight: '600', textTransform: 'uppercase', marginBottom: 4 },
+  amountLarge: { fontSize: 32, color: '#28a745', fontWeight: 'bold', letterSpacing: 1 },
+  divider: { height: 1, backgroundColor: '#e0e0e0', width: '100%', marginVertical: 16 },
   backButton: { backgroundColor: '#007AFF', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 15 },
   backButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
   statusIndicator: { padding: 15, borderRadius: 10, marginVertical: 10, alignItems: 'center' },
@@ -546,7 +634,8 @@ const styles = StyleSheet.create({
   failButtonText: { color: '#dc3545', fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
   section: { marginVertical: 10, width: '100%' },
   subHeader: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
-  qrContainer: { alignItems: 'center', marginTop: 20, padding: 20, backgroundColor: 'white', borderRadius: 10 },
+  qrTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', textAlign: 'center', marginTop: 8, marginBottom: 10 },
+  qrContainer: { alignItems: 'center', padding: 20, backgroundColor: 'white', borderRadius: 10 },
   qrInstruction: { marginTop: 15, fontSize: 16, fontWeight: '600', textAlign: 'center', color: '#333' },
   testModeBox: { marginTop: 20, padding: 15, backgroundColor: '#fff3cd', borderRadius: 8, width: '100%' },
   testModeLabel: { fontSize: 12, color: '#856404', marginBottom: 10, textAlign: 'center', fontWeight: '600' },
@@ -556,4 +645,9 @@ const styles = StyleSheet.create({
   failedPaymentText: { fontSize: 14, color: '#721c24', fontWeight: '600', marginBottom: 10 },
   completedBox: { backgroundColor: '#d4edda', padding: 20, borderRadius: 10, marginTop: 20, alignItems: 'center' },
   completedText: { fontSize: 20, color: '#155724', fontWeight: 'bold' },
+  stepTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 12, textAlign: 'center' },
+  arriveButton: { backgroundColor: '#fd7e14', paddingVertical: 16, paddingHorizontal: 24, borderRadius: 10, width: '100%', alignItems: 'center', marginTop: 10 },
+  arriveButtonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  statusBadgeDetail: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2, elevation: 2 },
+  statusTextDetail: { fontSize: 11, color: 'white', textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: 0.5 },
 });

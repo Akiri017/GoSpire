@@ -185,7 +185,7 @@ export default function ExploreScreen() {
                         order.customer_name
                       )}
                     >
-                      <Text style={styles.mapButtonText}>📍 View on Map</Text>
+                      <Text style={styles.mapButtonText}>🗺️ View on Map</Text>
                     </TouchableOpacity>
                   </>
                 )}
@@ -214,6 +214,7 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 20,
+    paddingTop: 60,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
