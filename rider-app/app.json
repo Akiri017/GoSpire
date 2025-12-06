@@ -8,6 +8,11 @@
     "scheme": "riderapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "extra": {
+      "eas": {
+        "projectId": "your-project-id-here"
+      }
+    },
     "ios": {
       "supportsTablet": true
     },
