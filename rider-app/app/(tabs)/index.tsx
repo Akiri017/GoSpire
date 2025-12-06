@@ -25,6 +25,10 @@ interface Order {
   status: string;
   created_at: string;
   proof_url?: string;
+  qr_ph?: string | null;
+  qr_expires_at?: string | null;
+  qr_generated_at?: string | null;
+  payrex_payment_intent_id?: string | null;
 }
 
 interface ToastState {
@@ -37,6 +41,8 @@ export default function HomeScreen() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [qrValue, setQrValue] = useState<string | null>(null);
+  const [qrExpiresAt, setQrExpiresAt] = useState<Date | null>(null);
+  const [qrTimeRemaining, setQrTimeRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
@@ -44,6 +50,7 @@ export default function HomeScreen() {
   const { user, signOut } = useAuth();
   const orderIdsRef = useRef<Set<string>>(new Set());
   const notifiedStatusRef = useRef<Map<string, Set<string>>>(new Map()); // Track notified statuses per order
+  const qrTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Toast helper function
   const showToast = (message: string, type: ToastType = 'info') => {
@@ -54,6 +61,84 @@ export default function HomeScreen() {
     );
     setToast({ visible: true, message, type });
   };
+
+  // QR Timer - Count down to expiry and auto-regenerate
+  useEffect(() => {
+    if (qrExpiresAt && qrValue) {
+      const now = new Date();
+      const timeUntilExpiry = Math.floor((qrExpiresAt.getTime() - now.getTime()) / 1000);
+      console.log('⏱️ QR Timer STARTED');
+      console.log(`   Expires at: ${qrExpiresAt.toLocaleTimeString()}`);
+      console.log(`   Time remaining: ${Math.floor(timeUntilExpiry / 60)}m ${timeUntilExpiry % 60}s`);
+      console.log(`   Auto-refresh: ENABLED`);
+      
+      // Clear any existing timer
+      if (qrTimerRef.current) {
+        clearInterval(qrTimerRef.current);
+      }
+
+      // Update timer every second
+      qrTimerRef.current = setInterval(() => {
+        const now = new Date().getTime();
+        const expiryTime = qrExpiresAt.getTime();
+        const remaining = Math.max(0, Math.floor((expiryTime - now) / 1000));
+        
+        setQrTimeRemaining(remaining);
+        
+        // Log every 30 seconds
+        if (remaining % 30 === 0 && remaining > 0) {
+          console.log(`⏱️ QR expires in ${Math.floor(remaining / 60)}m ${remaining % 60}s`);
+        }
+        
+        // Warning at 1 minute
+        if (remaining === 60) {
+          console.log('⚠️ QR code expires in 1 minute!');
+          showToast('⚠️ QR expires in 1 minute', 'warning');
+        }
+        
+        // Auto-regenerate when expired
+        if (remaining === 0) {
+          console.log('❌❌❌ QR EXPIRED! TRIGGERING AUTO-REGENERATION ❌❌❌');
+          showToast('🔄 QR expired! Generating new code...', 'warning');
+          
+          // Clear the interval to prevent multiple triggers
+          if (qrTimerRef.current) {
+            clearInterval(qrTimerRef.current);
+            qrTimerRef.current = null;
+          }
+          
+          // Use current selected order from state
+          setSelectedOrder(currentOrder => {
+            if (currentOrder) {
+              console.log(`🔄 Auto-regenerating QR for order ${currentOrder.id}...`);
+              handleGenerateQR(currentOrder, true); // true = auto-regenerate
+            } else {
+              console.error('❌ Cannot auto-regenerate: No selected order');
+            }
+            return currentOrder;
+          });
+        }
+      }, 1000);
+
+      return () => {
+        if (qrTimerRef.current) {
+          clearInterval(qrTimerRef.current);
+          console.log('⏱️ QR Timer STOPPED (cleanup)');
+        }
+      };
+    } else {
+      console.log('⏱️ QR Timer NOT started - missing qrExpiresAt or qrValue');
+    }
+  }, [qrExpiresAt, qrValue]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (qrTimerRef.current) {
+        clearInterval(qrTimerRef.current);
+      }
+    };
+  }, []);
 
   // 1. Setup Push Notifications on Load
   useEffect(() => {
@@ -142,12 +227,17 @@ export default function HomeScreen() {
               await notifyPaymentConfirmed(updatedOrder.id, updatedOrder.customer_name);
               
               // If viewing this order, update it and clear QR
-              if (selectedOrder && selectedOrder.id === updatedOrder.id) {
-                setSelectedOrder(updatedOrder);
-                setQrValue(null);
-                // Auto-complete the order
-                supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', updatedOrder.id);
-              }
+              setSelectedOrder(prev => {
+                if (prev && prev.id === updatedOrder.id) {
+                  setQrValue(null);
+                  setQrExpiresAt(null);
+                  setQrTimeRemaining(null);
+                  // Auto-complete the order
+                  supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', updatedOrder.id);
+                  return updatedOrder;
+                }
+                return prev;
+              });
             }
             // Handle EN_ROUTE status
             else if (updatedOrder.status === 'EN_ROUTE' || updatedOrder.status === 'ENROUTE') {
@@ -195,9 +285,12 @@ export default function HomeScreen() {
           }
           
           // Update selected order if it's the one being viewed
-          if (selectedOrder && selectedOrder.id === updatedOrder.id) {
-            setSelectedOrder(updatedOrder);
-          }
+          setSelectedOrder(prev => {
+            if (prev && prev.id === updatedOrder.id) {
+              return updatedOrder;
+            }
+            return prev;
+          });
           
           // Refresh the list
           fetchOrders();
@@ -214,7 +307,7 @@ export default function HomeScreen() {
       supabase.removeChannel(ordersChannel);
       console.log('🔌 Unsubscribed from real-time updates');
     };
-  }, [selectedOrder, user?.id]);
+  }, [user?.id]);
 
   const fetchOrders = async () => {
     // Guard clause: Don't fetch if no user
@@ -287,8 +380,9 @@ export default function HomeScreen() {
     return true;
   };
 
-  // 4. Generate QR Code
-  const handleGenerateQR = async (order: Order) => {
+  // 4. Generate QR Code (with expiry tracking)
+  const handleGenerateQR = async (order: Order, isAutoRegenerate: boolean = false) => {
+    console.log(`🔄 ${isAutoRegenerate ? 'AUTO-REGENERATING' : 'GENERATING'} QR code for order ${order.id}`);
     setLoading(true);
     setImageError(false);
     try {
@@ -299,26 +393,91 @@ export default function HomeScreen() {
         body: { orderId: order.id, amount: order.cod_amount }
       });
 
-      console.log('Function response - data:', data);
-      console.log('Function response - error:', error);
-
-      // If function fails, use mock QR for testing UI
+      // Use mock QR for development/hackathon (PayRex not configured)
       if (error || !data || !data.qr_url) {
-        console.warn('Edge function failed, using mock QR for testing');
-        console.error('Error details:', error);
+        console.log('📱 Using test QR code (PayRex not configured)');
         
-        // Generate a mock payment URL for testing
-        // This creates a QR code with payment info that can be scanned
-        const mockPaymentData = `payrex://pay?amount=${order.cod_amount}&order=${order.id}&merchant=RiderApp`;
-        setQrValue(mockPaymentData);
+        // Generate a mock payment QR code for testing
+        const now = new Date();
+        const mockExpiry = new Date(now.getTime() + 5 * 60 * 1000);
+        const mockGenerated = now.toISOString();
+        const mockExpiryISO = mockExpiry.toISOString();
         
-        Alert.alert(
-          "Mock QR Generated", 
-          "Edge function not available. Using test QR code.\n\nTo fix: Deploy the Edge Function to Supabase and set PAYREX_SECRET_KEY."
-        );
+        // Create mock payment data
+        const mockPaymentData = {
+          merchant: 'Rider App',
+          order_id: order.id,
+          amount: order.cod_amount,
+          currency: 'PHP',
+          payment_type: 'QRPH'
+        };
+        
+        // Generate QR code image URL using free service
+        const mockQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(JSON.stringify(mockPaymentData))}`;
+        
+        console.log(`⏱️ Mock QR will expire at: ${mockExpiry.toLocaleTimeString()}`);
+        console.log(`⏱️ Setting expiry state and database for order ID: ${order.id}`);
+        console.log('Expiry data:', { mockGenerated, mockExpiryISO });
+        
+        // Update database with mock QR metadata
+        const { data: updateData, error: updateError } = await supabase.from('orders').update({ 
+          qr_ph: mockQrUrl,
+          qr_generated_at: mockGenerated,
+          qr_expires_at: mockExpiryISO,
+          payrex_payment_intent_id: `mock_${Date.now()}`
+        }).eq('id', order.id).select();
+        
+        if (updateError) {
+          console.warn('⚠️ Could not save QR metadata:', updateError.message);
+        } else {
+          console.log('✅ QR code ready - expires at', mockExpiry.toLocaleTimeString());
+        }
+        
+        // Set state
+        setQrValue(mockQrUrl);
+        setQrExpiresAt(mockExpiry);
+        setQrTimeRemaining(5 * 60); // Initialize to 5 minutes
+        
+        if (!isAutoRegenerate) {
+          Alert.alert(
+            "QR Code Ready", 
+            `QR code generated for testing.\n\nExpires in 5 minutes at ${mockExpiry.toLocaleTimeString()}`
+          );
+        } else {
+          showToast(`🔄 QR refreshed (expires ${mockExpiry.toLocaleTimeString()})`, 'success');
+        }
       } else {
-        console.log('QR URL received:', data.qr_url);
+        console.log('✅ QR URL received:', data.qr_url);
         setQrValue(data.qr_url);
+        
+        // Set expiry time from response
+        if (data.expires_at) {
+          const expiryDate = new Date(data.expires_at);
+          const now = new Date();
+          const secondsRemaining = Math.floor((expiryDate.getTime() - now.getTime()) / 1000);
+          
+          setQrExpiresAt(expiryDate);
+          setQrTimeRemaining(secondsRemaining); // Initialize timer immediately
+          console.log(`⏱️ QR will expire at: ${expiryDate.toLocaleTimeString()} (${secondsRemaining}s remaining)`);
+          
+          if (isAutoRegenerate) {
+            showToast(`🔄 New QR generated (expires at ${expiryDate.toLocaleTimeString()})`, 'success');
+          }
+        }
+        
+        // Update database with QR metadata
+        const { data: updateData, error: updateError } = await supabase.from('orders').update({ 
+          qr_ph: data.qr_url,
+          qr_generated_at: data.generated_at || new Date().toISOString(),
+          qr_expires_at: data.expires_at,
+          payrex_payment_intent_id: data.payrex_id
+        }).eq('id', order.id).select();
+        
+        if (updateError) {
+          console.warn('⚠️ Could not save QR metadata:', updateError.message);
+        } else {
+          console.log('✅ QR code ready');
+        }
       }
       
       // Update payment_method to QRPH (status remains ARRIVED)
@@ -332,17 +491,50 @@ export default function HomeScreen() {
         payment_method: 'QRPH'
       }).eq('id', order.id);
       
+      console.log(`✅ QR generation complete! ${isAutoRegenerate ? '(Auto-regenerated)' : ''}`);
+      
     } catch (err: any) {
-      console.error('Generate QR error:', err);
+      console.log('📱 Generating test QR code');
       
-      // Fallback to mock for testing
-      const mockPaymentData = `payrex://pay?amount=${order.cod_amount}&order=${order.id}&merchant=RiderApp`;
-      setQrValue(mockPaymentData);
+      // Fallback to mock QR code for testing
+      const now = new Date();
+      const mockExpiry = new Date(now.getTime() + 5 * 60 * 1000);
+      const mockExpiryISO = mockExpiry.toISOString();
       
-      Alert.alert(
-        "Using Test QR", 
-        "Could not connect to payment service. Showing test QR code.\n\nError: " + (err.message || 'Unknown error')
-      );
+      // Create mock payment data
+      const mockPaymentData = {
+        merchant: 'Rider App',
+        order_id: order.id,
+        amount: order.cod_amount,
+        currency: 'PHP',
+        payment_type: 'QRPH'
+      };
+      
+      // Generate QR code image URL
+      const mockQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(JSON.stringify(mockPaymentData))}`;
+      
+      // Update database with mock expiry
+      const { error: updateError } = await supabase.from('orders').update({ 
+        qr_ph: mockQrUrl,
+        qr_generated_at: now.toISOString(),
+        qr_expires_at: mockExpiryISO,
+        payrex_payment_intent_id: `mock_error_${Date.now()}`
+      }).eq('id', order.id);
+      
+      if (updateError) {
+        console.warn('⚠️ Could not save QR metadata:', updateError.message);
+      }
+      
+      setQrValue(mockQrUrl);
+      setQrExpiresAt(mockExpiry);
+      setQrTimeRemaining(5 * 60); // Initialize to 5 minutes
+      
+      if (!isAutoRegenerate) {
+        Alert.alert(
+          "QR Code Ready", 
+          `Test QR code generated for development.\n\nExpires in 5 minutes at ${mockExpiry.toLocaleTimeString()}`
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -502,6 +694,12 @@ export default function HomeScreen() {
       
       setLoading(false);
       setSelectedOrder(null); // Go back to list
+      setQrValue(null);
+      setQrExpiresAt(null);
+      setQrTimeRemaining(null);
+      if (qrTimerRef.current) {
+        clearInterval(qrTimerRef.current);
+      }
       fetchOrders();
     } catch (err: any) {
       console.error('POD error:', err);
@@ -628,7 +826,37 @@ export default function HomeScreen() {
             return (
               <TouchableOpacity 
                 style={styles.card} 
-                onPress={() => setSelectedOrder(item)}
+                onPress={() => {
+                  setSelectedOrder(item);
+                  // Load QR data if exists and hasn't expired
+                  if (item.qr_ph && item.qr_expires_at) {
+                    const expiryDate = new Date(item.qr_expires_at);
+                    const now = new Date();
+                    const secondsRemaining = Math.floor((expiryDate.getTime() - now.getTime()) / 1000);
+                    
+                    console.log('📋 Loading existing QR from order');
+                    console.log('   QR Value:', item.qr_ph?.substring(0, 50) + '...');
+                    console.log('   Expires at:', item.qr_expires_at);
+                    console.log('   Parsed expiry:', expiryDate.toLocaleTimeString());
+                    console.log('   Seconds remaining:', secondsRemaining);
+                    
+                    if (secondsRemaining > 0) {
+                      setQrExpiresAt(expiryDate);
+                      setQrTimeRemaining(secondsRemaining);
+                      setQrValue(item.qr_ph);
+                    } else {
+                      console.log('⚠️ QR already expired');
+                      setQrExpiresAt(null);
+                      setQrTimeRemaining(null);
+                      setQrValue(null);
+                    }
+                  } else {
+                    console.log('📋 No active QR found in order');
+                    setQrExpiresAt(null);
+                    setQrTimeRemaining(null);
+                    setQrValue(null);
+                  }
+                }}
               >
                 <View style={styles.cardRow}>
                   <Text style={styles.orderNumber}>Order #{item.id.slice(0, 8)}</Text>
@@ -675,7 +903,12 @@ export default function HomeScreen() {
           onPress={() => { 
             setSelectedOrder(null); 
             setQrValue(null); 
+            setQrExpiresAt(null);
+            setQrTimeRemaining(null);
             setImageError(false);
+            if (qrTimerRef.current) {
+              clearInterval(qrTimerRef.current);
+            }
           }}
         >
           <Text style={styles.backButtonText}>← Back</Text>
@@ -763,6 +996,26 @@ export default function HomeScreen() {
       {qrValue && selectedOrder.status?.toUpperCase() === 'ARRIVED' && (
         <>
           <Text style={styles.qrTitle}>Scan QR Code</Text>
+          
+          {/* QR Expiry Timer */}
+          {qrTimeRemaining !== null && qrTimeRemaining >= 0 && (
+            <View style={styles.timerContainer}>
+              <Text style={[
+                styles.timerText,
+                qrTimeRemaining <= 60 && styles.timerTextUrgent
+              ]}>
+                {qrTimeRemaining > 0 ? (
+                  `QR expires in ${Math.floor(qrTimeRemaining / 60)}m ${qrTimeRemaining % 60}s`
+                ) : (
+                  '⏱️ EXPIRED - Regenerating...'
+                )}
+              </Text>
+              <Text style={styles.timerSubtext}>
+                Auto-refresh enabled
+              </Text>
+            </View>
+          )}
+          
           <View style={styles.qrContainer}>
             {!imageError ? (
               <Image 
@@ -780,6 +1033,18 @@ export default function HomeScreen() {
                 <QRCode value={qrValue} size={250} />
               </View>
             )}
+          </View>
+
+          {/* Manual Refresh Button */}
+          <TouchableOpacity
+            style={[styles.refreshButton, loading && styles.buttonDisabled]}
+            onPress={() => handleGenerateQR(selectedOrder, false)}
+            disabled={loading}
+          >
+            <Text style={styles.refreshButtonText}>
+              {loading ? '🔄 Generating...' : '🔄 Refresh QR Code'}
+            </Text>
+          </TouchableOpacity>
           
           {/* TEST MODE: Simulate payment confirmation */}
           <View style={styles.testModeBox}>
@@ -791,6 +1056,8 @@ export default function HomeScreen() {
               onPress={async () => {
                 // Clear QR and mark as completed with QRPH payment
                 setQrValue(null);
+                setQrExpiresAt(null);
+                setQrTimeRemaining(null);
                 // Complete the order with proof
                 handlePOD(selectedOrder.id, 'QRPH');
               }}
@@ -813,6 +1080,8 @@ export default function HomeScreen() {
                     style: "destructive",
                     onPress: () => {
                       setQrValue(null);
+                      setQrExpiresAt(null);
+                      setQrTimeRemaining(null);
                     }
                   }
                 ]
@@ -821,7 +1090,6 @@ export default function HomeScreen() {
           >
             <Text style={styles.failButtonText}>Payment Failed? Switch to Cash</Text>
           </TouchableOpacity>
-        </View>
         </>
       )}
 
@@ -981,4 +1249,47 @@ const styles = StyleSheet.create({
     fontWeight: '600', 
     color: '#333' 
   },
+  timerContainer: { 
+    backgroundColor: '#007AFF', 
+    paddingVertical: 12, 
+    paddingHorizontal: 20, 
+    borderRadius: 8, 
+    marginBottom: 15, 
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  timerText: { 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    color: 'white',
+    letterSpacing: 0.5,
+    marginBottom: 4
+  },
+  timerTextUrgent: {
+    color: '#FFD700'
+  },
+  timerSubtext: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '500'
+  },
+  refreshButton: {
+    backgroundColor: '#6c757d',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 15,
+    marginBottom: 10
+  },
+  refreshButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600'
+  }
 });
