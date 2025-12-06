@@ -7,6 +7,15 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 
+// Suppress the keep awake error from expo-splash-screen
+const originalError = console.error;
+console.error = (...args) => {
+  if (typeof args[0] === 'string' && args[0].includes('keep awake')) {
+    return;
+  }
+  originalError.apply(console, args);
+};
+
 export const unstable_settings = {
   anchor: '(tabs)',
 };
