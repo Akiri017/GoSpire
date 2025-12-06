@@ -10,6 +10,7 @@ interface OrderWithLocation {
   address: string;
   cod_amount: number;
   status: string;
+  payment_method: string | null;
   delivery_latitude: number | null;
   delivery_longitude: number | null;
   delivery_timestamp: string | null;
@@ -148,48 +149,29 @@ export default function ExploreScreen() {
           {completedOrders.map((order) => (
             <View key={order.id} style={styles.card}>
               <View style={styles.cardHeader}>
-                <Text style={styles.customerName}>{order.customer_name}</Text>
+                <Text style={styles.orderIdText}>Order #{order.id.slice(0, 8)}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) }]}>
                   <Text style={styles.statusText}>{order.status}</Text>
                 </View>
               </View>
 
-              <Text style={styles.address}>{order.address}</Text>
-              <Text style={styles.amount}>₱{order.cod_amount.toLocaleString()}</Text>
-
-              <View style={styles.divider} />
-
-              <View style={styles.locationSection}>
-                <Text style={styles.sectionLabel}>📍 Delivery Location</Text>
-                {order.delivery_latitude && order.delivery_longitude && (
-                  <>
-                    <Text style={styles.coordinates}>
-                      {formatCoordinates(order.delivery_latitude, order.delivery_longitude)}
-                    </Text>
-                    {order.delivery_timestamp && (
-                      <Text style={styles.timestamp}>
-                        {new Date(order.delivery_timestamp).toLocaleString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </Text>
-                    )}
-                    
-                    <TouchableOpacity
-                      style={styles.mapButton}
-                      onPress={() => openInMaps(
-                        order.delivery_latitude!,
-                        order.delivery_longitude!,
-                        order.customer_name
-                      )}
-                    >
-                      <Text style={styles.mapButtonText}>🗺️ View on Map</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
+              <View style={styles.infoRow}>
+                <Text style={styles.label}>📍 Address:</Text>
+                <Text style={styles.value}>{order.address}</Text>
               </View>
+
+              {order.delivery_latitude && order.delivery_longitude && (
+                <TouchableOpacity
+                  style={styles.mapButton}
+                  onPress={() => openInMaps(
+                    order.delivery_latitude!,
+                    order.delivery_longitude!,
+                    order.customer_name
+                  )}
+                >
+                  <Text style={styles.mapButtonText}>🗺️ View on Map</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ))}
         </View>
@@ -265,13 +247,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  customerName: {
-    fontSize: 18,
-    fontWeight: '600',
+  orderIdText: {
+    fontSize: 16,
+    fontWeight: 'bold',
     color: '#1f2937',
-    flex: 1,
   },
   statusBadge: {
     paddingHorizontal: 10,
@@ -283,52 +264,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  address: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 4,
+  infoRow: {
+    marginBottom: 8,
   },
-  amount: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#059669',
-    marginBottom: 12,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#e5e7eb',
-    marginVertical: 12,
-  },
-  locationSection: {
-    backgroundColor: '#f0fdf4',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#d1fae5',
-  },
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#065f46',
-    marginBottom: 6,
-  },
-  coordinates: {
-    fontSize: 13,
-    fontFamily: 'monospace',
-    color: '#047857',
-    marginBottom: 4,
-  },
-  timestamp: {
+  label: {
     fontSize: 12,
     color: '#6b7280',
-    marginBottom: 10,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  value: {
+    fontSize: 14,
+    color: '#1f2937',
+  },
+  paymentValue: {
+    fontSize: 14,
+    color: '#059669',
+    fontWeight: '600',
   },
   mapButton: {
     backgroundColor: '#10b981',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
     alignItems: 'center',
+    marginTop: 12,
   },
   mapButtonText: {
     color: '#fff',

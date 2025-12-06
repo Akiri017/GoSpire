@@ -291,6 +291,21 @@ export default function HomeScreen() {
     }
   };
 
+  // Get greeting based on time of day
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  };
+
+  // Get rider name from email (first part before @)
+  const getRiderName = () => {
+    if (!user?.email) return 'Rider';
+    const name = user.email.split('@')[0];
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  };
+
   // Filter orders based on active tab
   const filteredOrders = orders.filter(order => {
     if (activeTab === 'active') {
@@ -305,7 +320,7 @@ export default function HomeScreen() {
     return (
       <View style={styles.container}>
         <View style={styles.headerContainer}>
-          <Text style={styles.header}>My Deliveries</Text>
+          <Text style={styles.header}>{getGreeting()}, {getRiderName()}!</Text>
           <TouchableOpacity 
             style={styles.logoutButton}
             onPress={() => {
