@@ -376,7 +376,16 @@ export default function HomeScreen() {
           "Proof Required",
           "You must upload a proof of delivery photo to complete this transaction.",
           [
-            { text: "Try Again", onPress: () => handlePOD(orderId, paymentMethod, cashReason) }
+            { text: "Try Again", onPress: () => handlePOD(orderId, paymentMethod, cashReason) },
+            { 
+              text: "Cancel", 
+              style: "cancel",
+              onPress: () => {
+                // Return to payment method selection by clearing QR
+                setQrValue(null);
+                showToast('Returned to payment selection', 'info');
+              }
+            }
           ]
         );
         return;
