@@ -1,177 +1,94 @@
-# Supabase CLI
+# GoSpire
 
-[![Coverage Status](https://coveralls.io/repos/github/supabase/cli/badge.svg?branch=main)](https://coveralls.io/github/supabase/cli?branch=main) [![Bitbucket Pipelines](https://img.shields.io/bitbucket/pipelines/supabase-cli/setup-cli/master?style=flat-square&label=Bitbucket%20Canary)](https://bitbucket.org/supabase-cli/setup-cli/pipelines) [![Gitlab Pipeline Status](https://img.shields.io/gitlab/pipeline-status/sweatybridge%2Fsetup-cli?label=Gitlab%20Canary)
-](https://gitlab.com/sweatybridge/setup-cli/-/pipelines)
+GoSpire is a modern application designed to enhance the rider experience by providing seamless navigation, exploration, and settlement features. Built with cutting-edge technologies, GoSpire ensures a user-friendly interface and robust functionality for riders and sponsors alike.
 
-[Supabase](https://supabase.io) is an open source Firebase alternative. We're building the features of Firebase using enterprise-grade open source tools.
+## Features
 
-This repository contains all the functionality for Supabase CLI.
+- **User Authentication**: Secure login and signup functionality.
+- **Navigation and Exploration**: Discover new routes and explore destinations.
+- **Settlement Management**: Simplified settlement processes for riders.
+- **Notifications**: Real-time updates and alerts.
 
-- [x] Running Supabase locally
-- [x] Managing database migrations
-- [x] Creating and deploying Supabase Functions
-- [x] Generating types directly from your database schema
-- [x] Making authenticated HTTP requests to [Management API](https://supabase.com/docs/reference/api/introduction)
+## Technologies Used
 
-## Getting started
+- **Frontend**: React Native with TypeScript
+- **Backend**: Supabase for database and authentication
+- **Services**: Location and Notification services
+- **Payment Integration**: Payrex APIs and Webhooks (configured but not yet deployed in this testing version)
 
-### Install the CLI
+## Getting Started
 
-Available via [NPM](https://www.npmjs.com) as dev dependency. To install:
+Follow these steps to set up and run GoSpire on your local machine:
 
+### Prerequisites
+
+Ensure you have the following installed:
+
+- Node.js (v16 or higher)
+- npm or yarn
+- Supabase CLI
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Akiri017/GoSpire.git
+   ```
+
+2. Navigate to the project directory:
+   ```bash
+   cd GoSpire/rider-app
+   ```
+
+3. Install dependencies:
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+4. Set up Supabase:
+   - Create a Supabase project at [Supabase](https://supabase.com/).
+   - Copy your Supabase credentials to `supabaseClient.js`.
+
+5. Configure environment variables:
+   - Add any required environment variables in a `.env` file.
+
+### Running the Application
+
+1. Start the development server:
+   ```bash
+   npx expo start --tunnel
+   ```
+
+2. Open the application on your mobile phone using the GoExpo app:
+   - Download the GoExpo app from the [App Store](https://apps.apple.com) or [Google Play](https://play.google.com).
+   - Scan the QR code displayed in the terminal to launch the app.
+
+### Testing
+
+Run the test suite to ensure everything is working:
 ```bash
-npm i supabase --save-dev
+npm test
 ```
 
-When installing with yarn 4, you need to disable experimental fetch with the following nodejs config.
+## Folder Structure
 
-```
-NODE_OPTIONS=--no-experimental-fetch yarn add supabase
-```
+- `app/`: Contains the main application screens and layouts.
+- `components/`: Reusable UI components.
+- `services/`: Location and notification services.
+- `supabase/`: Supabase configuration and functions.
+- `scripts/`: Utility scripts for project management.
 
-> **Note**
-For Bun versions below v1.0.17, you must add `supabase` as a [trusted dependency](https://bun.sh/guides/install/trusted) before running `bun add -D supabase`.
+## Contributing
 
-<details>
-  <summary><b>macOS</b></summary>
+We welcome contributions! Please follow these steps:
 
-  Available via [Homebrew](https://brew.sh). To install:
+1. Fork the repository.
+2. Create a new branch for your feature or bug fix.
+3. Submit a pull request with a detailed description of your changes.
 
-  ```sh
-  brew install supabase/tap/supabase
-  ```
+## License
 
-  To install the beta release channel:
-  
-  ```sh
-  brew install supabase/tap/supabase-beta
-  brew link --overwrite supabase-beta
-  ```
-  
-  To upgrade:
+This project is licensed under the MIT License.
 
-  ```sh
-  brew upgrade supabase
-  ```
-</details>
-
-<details>
-  <summary><b>Windows</b></summary>
-
-  Available via [Scoop](https://scoop.sh). To install:
-
-  ```powershell
-  scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
-  scoop install supabase
-  ```
-
-  To upgrade:
-
-  ```powershell
-  scoop update supabase
-  ```
-</details>
-
-<details>
-  <summary><b>Linux</b></summary>
-
-  Available via [Homebrew](https://brew.sh) and Linux packages.
-
-  #### via Homebrew
-
-  To install:
-
-  ```sh
-  brew install supabase/tap/supabase
-  ```
-
-  To upgrade:
-
-  ```sh
-  brew upgrade supabase
-  ```
-
-  #### via Linux packages
-
-  Linux packages are provided in [Releases](https://github.com/supabase/cli/releases). To install, download the `.apk`/`.deb`/`.rpm`/`.pkg.tar.zst` file depending on your package manager and run the respective commands.
-
-  ```sh
-  sudo apk add --allow-untrusted <...>.apk
-  ```
-
-  ```sh
-  sudo dpkg -i <...>.deb
-  ```
-
-  ```sh
-  sudo rpm -i <...>.rpm
-  ```
-
-  ```sh
-  sudo pacman -U <...>.pkg.tar.zst
-  ```
-</details>
-
-<details>
-  <summary><b>Other Platforms</b></summary>
-
-  You can also install the CLI via [go modules](https://go.dev/ref/mod#go-install) without the help of package managers.
-
-  ```sh
-  go install github.com/supabase/cli@latest
-  ```
-
-  Add a symlink to the binary in `$PATH` for easier access:
-
-  ```sh
-  ln -s "$(go env GOPATH)/bin/cli" /usr/bin/supabase
-  ```
-
-  This works on other non-standard Linux distros.
-</details>
-
-<details>
-  <summary><b>Community Maintained Packages</b></summary>
-
-  Available via [pkgx](https://pkgx.sh/). Package script [here](https://github.com/pkgxdev/pantry/blob/main/projects/supabase.com/cli/package.yml).
-  To install in your working directory:
-
-  ```bash
-  pkgx install supabase
-  ```
-
-  Available via [Nixpkgs](https://nixos.org/). Package script [here](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/tools/supabase-cli/default.nix).
-</details>
-
-### Run the CLI
-
-```bash
-supabase bootstrap
-```
-
-Or using npx:
-
-```bash
-npx supabase bootstrap
-```
-
-The bootstrap command will guide you through the process of setting up a Supabase project using one of the [starter](https://github.com/supabase-community/supabase-samples/blob/main/samples.json) templates.
-
-## Docs
-
-Command & config reference can be found [here](https://supabase.com/docs/reference/cli/about).
-
-## Breaking changes
-
-We follow semantic versioning for changes that directly impact CLI commands, flags, and configurations.
-
-However, due to dependencies on other service images, we cannot guarantee that schema migrations, seed.sql, and generated types will always work for the same CLI major version. If you need such guarantees, we encourage you to pin a specific version of CLI in package.json.
-
-## Developing
-
-To run from source:
-
-```sh
-# Go >= 1.22
-go run . help
-```
